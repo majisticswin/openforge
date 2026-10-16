@@ -50,14 +50,17 @@ npm install
 npm start
 ```
 
-Open http://localhost:4321, click **AI models**, and add at least one:
+Open http://localhost:4321, click **AI models**, and pick from the **Add an AI** dropdown. Add as many as you like, then choose which model each one uses and which one writes the code.
 
-| Model | Where to get a key |
+| Kind | Options |
 | --- | --- |
-| Claude | https://console.anthropic.com |
-| GPT | https://platform.openai.com/api-keys |
-| Gemini | https://aistudio.google.com/apikey (has a free tier) |
-| Local, free | Install [Ollama](https://ollama.com), run `ollama pull qwen3-coder`, then use `http://localhost:11434/v1` |
+| Major providers | Claude, ChatGPT models (OpenAI), Gemini (free tier) |
+| Cloud LLMs | OpenRouter, Groq, Together, DeepSeek, Mistral, Fireworks, xAI, or your own hosted model at any OpenAI-compatible URL |
+| Local, free | Ollama, LM Studio, llama.cpp, LocalAI, vLLM, Jan, text-generation-webui, KoboldCpp, GPT4All |
+
+OpenForge scans this computer for local AI servers that are already running and lists them at the top of the dropdown. To scan other machines too (for example when OpenForge runs in Docker), set `OPENFORGE_SCAN_HOSTS=host.docker.internal,192.168.1.20`.
+
+The **Usage** tab shows the tokens and cost of every AI call, by day, model and site. Counts come from what each provider reports for each call. Claude prices are built in, OpenRouter publishes its own, and for other paid models you can enter the price. OpenRouter and DeepSeek also show your remaining account balance; the other providers only expose that in their own dashboards, so OpenForge links there.
 
 No key yet? Run `npm run demo` to see the whole flow with a built-in demo model.
 

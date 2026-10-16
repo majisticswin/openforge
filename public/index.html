@@ -49,6 +49,7 @@
         <h2 id="site-name">New site</h2>
         <p id="site-request" class="muted"></p>
         <p id="site-team" class="team small"></p>
+        <p id="site-usage" class="usage-line small" hidden></p>
       </div>
       <ol id="timeline" class="timeline" aria-live="polite"></ol>
       <form id="edit-form" class="edit-box">
@@ -85,38 +86,57 @@
     </section>
   </main>
 
-  <!-- AI models dialog -->
-  <dialog id="settings">
-    <form method="dialog" class="dialog">
-      <h2>AI models</h2>
-      <p class="muted">Add any you have. With more than one, they plan, build and review each other's work. Keys stay in this browser and are only sent to your own OpenForge server.</p>
-      <fieldset>
-        <legend>Claude (Anthropic)</legend>
-        <input id="key-anthropic" type="password" placeholder="sk-ant-..." autocomplete="off">
-        <input id="model-anthropic" placeholder="Model (default claude-opus-5-5)">
-      </fieldset>
-      <fieldset>
-        <legend>GPT (OpenAI)</legend>
-        <input id="key-openai" type="password" placeholder="sk-..." autocomplete="off">
-        <input id="model-openai" placeholder="Model (default: newest GPT)">
-      </fieldset>
-      <fieldset>
-        <legend>Gemini (Google)</legend>
-        <input id="key-gemini" type="password" placeholder="AIza..." autocomplete="off">
-        <input id="model-gemini" placeholder="Model (default: newest Gemini Pro)">
-      </fieldset>
-      <fieldset>
-        <legend>Free local model (Ollama, LM Studio) or OpenRouter</legend>
-        <input id="local-url" placeholder="http://localhost:11434/v1">
-        <input id="local-model" placeholder="Model, e.g. qwen3-coder">
-        <input id="key-local" type="password" placeholder="API key (if needed)" autocomplete="off">
-      </fieldset>
-      <label class="check"><input id="use-mock" type="checkbox"> Demo mode (no key, builds a sample site to show how it works)</label>
-      <p id="server-keys" class="muted small"></p>
-      <div class="dialog-actions">
-        <button class="primary" value="save">Save</button>
+  <!-- AI models and usage -->
+  <dialog id="settings" class="wide">
+    <div class="dialog">
+      <div class="dialog-head">
+        <div class="tabs" role="tablist">
+          <button role="tab" aria-selected="true" data-panel="models-panel" type="button">AI models</button>
+          <button role="tab" aria-selected="false" data-panel="usage-panel" type="button">Usage</button>
+        </div>
+        <button class="icon-btn" type="button" id="settings-close" aria-label="Close">&times;</button>
       </div>
-    </form>
+
+      <section id="models-panel" class="panel-body">
+        <p class="muted small">Add as many as you like. With more than one, they work as a team: one writes the code, the others plan and review. Keys stay in this browser and are only sent to your own OpenForge server.</p>
+
+        <div class="add-row">
+          <label for="add-select" class="sr-only">Add an AI</label>
+          <select id="add-select">
+            <option value="">+ Add an AI…</option>
+          </select>
+          <button class="ghost" type="button" id="scan-btn">Scan for local models</button>
+        </div>
+        <p id="scan-status" class="muted small" aria-live="polite"></p>
+
+        <form id="add-form" class="add-form" hidden>
+          <h3 id="add-title"></h3>
+          <p id="add-note" class="muted small"></p>
+          <label>Name <input id="add-name" autocomplete="off"></label>
+          <label id="add-url-row">Server address <input id="add-url" placeholder="https://your-server.example.com/v1" autocomplete="off"></label>
+          <label id="add-key-row">API key <input id="add-key" type="password" autocomplete="off"> <a id="add-key-link" target="_blank" rel="noopener" class="small">Get a key</a></label>
+          <p id="add-error" class="error small" role="alert"></p>
+          <div class="dialog-actions">
+            <button class="ghost" type="button" id="add-cancel">Cancel</button>
+            <button class="primary" type="submit" id="add-submit">Connect and load models</button>
+          </div>
+        </form>
+
+        <ul id="connection-list" class="connection-list"></ul>
+        <p id="no-connections" class="empty-note">No AI added yet. Pick one above, or try the demo model.</p>
+      </section>
+
+      <section id="usage-panel" class="panel-body" hidden>
+        <div class="stat-row" id="usage-stats"></div>
+        <p class="muted small" id="usage-note"></p>
+        <h3>By model</h3>
+        <div class="table-wrap"><table id="usage-models"></table></div>
+        <h3>By site</h3>
+        <div class="table-wrap"><table id="usage-projects"></table></div>
+        <h3>Recent AI calls</h3>
+        <div class="table-wrap"><table id="usage-recent"></table></div>
+      </section>
+    </div>
   </dialog>
 
   <!-- Projects dialog -->

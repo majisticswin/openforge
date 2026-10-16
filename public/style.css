@@ -138,3 +138,57 @@ fieldset input { background: var(--raised); border: 1px solid var(--line); borde
 @media (prefers-reduced-motion: reduce) {
   *, *::before { animation: none !important; transition: none !important; }
 }
+
+/* AI models and usage dialog */
+dialog.wide { width: min(860px, calc(100vw - 24px)); max-height: calc(100vh - 40px); }
+dialog.wide .dialog { padding: 0; gap: 0; }
+.dialog-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); z-index: 1; }
+.icon-btn { background: none; border: 0; font-size: 26px; line-height: 1; cursor: pointer; color: var(--muted); padding: 2px 8px; border-radius: 8px; }
+.icon-btn:hover { color: var(--text); background: var(--raised); }
+.panel-body { padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+.panel-body h3 { margin: 10px 0 0; font-size: 15px; }
+select, .add-form input, .conn-price input {
+  background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; color: var(--text); outline: none; font: inherit;
+}
+select:focus, .add-form input:focus { border-color: #ff6b3588; }
+.add-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.add-row select { flex: 1; min-width: 220px; font-weight: 500; }
+.add-form { border: 1px solid #ff6b3555; border-radius: 12px; padding: 14px; display: grid; gap: 10px; background: #ff6b3508; }
+.add-form h3 { margin: 0; }
+.add-form label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.add-form label a { color: var(--brand-2); }
+.error { color: var(--bad); margin: 0; }
+.error:empty { display: none; }
+.empty-note { color: var(--muted); text-align: center; padding: 18px; border: 1px dashed var(--line); border-radius: 12px; margin: 0; }
+.connection-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.conn { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 10px; background: var(--raised); }
+.conn.disabled { opacity: .55; }
+.conn-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.conn-name { font-weight: 600; flex: 1; min-width: 120px; }
+.badge { font-size: 11px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.badge.local { color: var(--ok); border-color: #3ecf8e55; }
+.badge.cloud { color: #8ab4ff; border-color: #8ab4ff55; }
+.badge.server { color: var(--brand-2); border-color: #ffb34755; }
+.conn-model { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.conn-model select { flex: 1; min-width: 200px; }
+.conn-meta { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); align-items: center; }
+.conn-meta a { color: var(--brand-2); }
+.conn-meta label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; color: var(--text); }
+.conn-price { display: inline-flex; gap: 6px; align-items: center; }
+.conn-price input { width: 74px; padding: 4px 8px; }
+.link-btn { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 0; text-decoration: underline; font-size: 13px; }
+.link-btn:hover { color: var(--bad); }
+.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.stat { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--raised); }
+.stat .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.stat .value { font-size: 24px; font-weight: 700; letter-spacing: -.02em; margin-top: 2px; }
+.stat .sub { font-size: 13px; color: var(--muted); }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; background: var(--raised); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tr:last-child td { border-bottom: 0; }
+td.empty { color: var(--muted); text-align: center; padding: 16px; }
+.usage-line { margin-top: 6px !important; color: var(--brand-2); }
+.timeline .tokens { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }

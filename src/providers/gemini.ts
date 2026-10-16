@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import type { GenerateRequest, Provider } from "./types.js";
+import { estimateTokens, type Connection, type GenerateRequest, type Provider, type TokenUsage } from "./types.js";
 
 function version(name: string): number[] {
   return (name.match(/gemini-([\d.]+)/)?.[1] ?? "0").split(".").map(Number);
@@ -32,18 +32,19 @@ export async function detectGeminiModel(ai: GoogleGenAI): Promise<string> {
   return names[0];
 }
 
-export function createGeminiProvider(apiKey: string, configuredModel?: string): Provider {
-  const ai = new GoogleGenAI({ apiKey });
-  let model: string | undefined = configuredModel;
+export function createGeminiProvider(connection: Connection): Provider {
+  const ai = new GoogleGenAI({ apiKey: connection.apiKey });
+  let model: string | undefined = connection.model || undefined;
 
   const provider: Provider = {
-    id: "gemini",
-    label: configuredModel ? `Gemini (${configuredModel})` : "Gemini",
-    model: configuredModel ?? "auto",
+    connection,
+    kind: "gemini",
+    label: model ? `${connection.name} (${model})` : connection.name,
+    model: model ?? "auto",
     async generate({ system, prompt, maxTokens = 65536, onText, signal }: GenerateRequest) {
       model ??= await detectGeminiModel(ai);
       provider.model = model;
-      provider.label = `Gemini (${model})`;
+      provider.label = `${connection.name} (${model})`;
 
       const stream = await ai.models.generateContentStream({
         model,
@@ -53,6 +54,7 @@ export function createGeminiProvider(apiKey: string, configuredModel?: string): 
 
       let text = "";
       let finish: string | undefined;
+      let usage: TokenUsage | undefined;
       for await (const chunk of stream) {
         const delta = chunk.text ?? "";
         if (delta) {
@@ -60,10 +62,19 @@ export function createGeminiProvider(apiKey: string, configuredModel?: string): 
           onText?.(delta);
         }
         finish = chunk.candidates?.[0]?.finishReason ?? finish;
+        const meta = chunk.usageMetadata;
+        if (meta?.promptTokenCount !== undefined) {
+          // Thinking tokens are billed as output.
+          usage = { inputTokens: meta.promptTokenCount, outputTokens: (meta.candidatesTokenCount ?? 0) + (meta.thoughtsTokenCount ?? 0) };
+        }
       }
       if (finish === "MAX_TOKENS") throw new Error("Gemini hit its output limit before finishing.");
       if (finish === "SAFETY" || finish === "PROHIBITED_CONTENT") throw new Error("Gemini declined this request.");
-      return text;
+      return {
+        text,
+        model,
+        usage: usage ?? { inputTokens: estimateTokens(system + prompt), outputTokens: estimateTokens(text), estimated: true },
+      };
     },
   };
   return provider;

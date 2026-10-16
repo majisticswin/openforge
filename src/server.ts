@@ -1,49 +1,93 @@
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assignRoles } from "./engine/forge.js";
+import { assignRoles, type RolePreferences } from "./engine/forge.js";
 import { readProject } from "./engine/files.js";
-import { configFromEnv, createProviders, type ProviderConfig } from "./providers/index.js";
+import { PRESETS } from "./providers/catalog.js";
+import { accountInfo, listModels, scanLocalServers } from "./providers/discovery.js";
+import { connectionsFromEnv, createProvider, sanitizeConnection, type Connection } from "./providers/index.js";
+import { MOCK_CONNECTION } from "./providers/mock.js";
 import { ProjectStore } from "./projects.js";
+import { UsageStore } from "./usage.js";
 import { createZip } from "./zip.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
-const store = new ProjectStore(process.env.OPENFORGE_WORKSPACES ?? path.join(root, "workspaces"));
-const envConfig = configFromEnv();
-if (process.argv.includes("--demo")) envConfig.mock = true;
+const workspaces = process.env.OPENFORGE_WORKSPACES ?? path.join(root, "workspaces");
+const usage = new UsageStore(workspaces);
+const store = new ProjectStore(workspaces, usage);
+const envConnections = connectionsFromEnv();
+if (process.argv.includes("--demo") && !envConnections.some((c) => c.kind === "mock")) envConnections.push(MOCK_CONNECTION);
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(root, "public")));
 
+/** Connections configured on the server (.env) are referred to by id, so their keys never reach the browser. */
+function resolveConnection(raw: unknown): Connection | null {
+  const id = (raw as { id?: unknown } | null)?.id;
+  const server = envConnections.find((c) => c.id === id);
+  if (server) {
+    const overrides = raw as Partial<Connection>;
+    return { ...server, model: overrides.model || server.model, price: sanitizeConnection({ ...server, ...overrides })?.price, enabled: overrides.enabled !== false };
+  }
+  return sanitizeConnection(raw);
+}
+
 /**
  * Keys typed into the browser are sent with each request and only kept in
  * memory for that job. Keys in the server's environment are used otherwise.
  */
-function rolesFor(body: { keys?: ProviderConfig }) {
-  const keys = body.keys ?? {};
-  const config: ProviderConfig = {
-    anthropic: keys.anthropic?.apiKey ? keys.anthropic : envConfig.anthropic,
-    openai: keys.openai?.apiKey ? keys.openai : envConfig.openai,
-    gemini: keys.gemini?.apiKey ? keys.gemini : envConfig.gemini,
-    local: keys.local?.baseURL && keys.local.model ? keys.local : envConfig.local,
-    mock: keys.mock ?? envConfig.mock,
-  };
-  return assignRoles(createProviders(config));
+function rolesFor(body: { connections?: unknown[]; roles?: RolePreferences }) {
+  const sent = Array.isArray(body.connections) ? body.connections.map(resolveConnection).filter((c): c is Connection => c !== null) : [];
+  const connections = sent.length > 0 ? sent : envConnections;
+  const providers = connections.filter((c) => c.enabled !== false).map(createProvider);
+  return assignRoles(providers, body.roles ?? {});
 }
 
 app.get("/api/config", (_req, res) => {
   res.json({
-    serverKeys: {
-      anthropic: Boolean(envConfig.anthropic),
-      openai: Boolean(envConfig.openai),
-      gemini: Boolean(envConfig.gemini),
-      local: Boolean(envConfig.local),
-      mock: Boolean(envConfig.mock),
-    },
+    presets: PRESETS,
+    // Server-side connections without their keys.
+    serverConnections: envConnections.map(({ apiKey: _key, ...rest }) => ({ ...rest, fromServer: true })),
   });
 });
+
+app.post("/api/models", async (req, res) => {
+  const connection = resolveConnection(req.body?.connection);
+  if (!connection) return res.status(400).json({ error: "Fill in the API key (and address, for custom servers) first." });
+  try {
+    res.json({ models: await listModels(connection) });
+  } catch (err) {
+    res.status(400).json({ error: friendlyError(err) });
+  }
+});
+
+app.get("/api/local/scan", async (_req, res) => {
+  res.json({ servers: await scanLocalServers() });
+});
+
+app.post("/api/account", async (req, res) => {
+  const connection = resolveConnection(req.body?.connection);
+  if (!connection) return res.status(400).json({ error: "Unknown connection." });
+  try {
+    res.json(await accountInfo(connection));
+  } catch (err) {
+    res.status(400).json({ error: friendlyError(err) });
+  }
+});
+
+app.get("/api/usage", async (_req, res) => {
+  res.json(await usage.summary());
+});
+
+function friendlyError(err: unknown): string {
+  const e = err as { status?: number; message?: string; cause?: { code?: string } };
+  if (e.status === 401 || e.status === 403) return "That API key was rejected. Check it and try again.";
+  if (e.cause?.code === "ECONNREFUSED") return "Nothing is answering at that address. Is the server running?";
+  if (e.message?.includes("timeout") || e.message?.includes("aborted")) return "The server took too long to answer.";
+  return e.message ?? String(err);
+}
 
 app.get("/api/projects", async (_req, res) => {
   res.json(await store.list());

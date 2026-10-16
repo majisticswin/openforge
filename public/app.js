@@ -1,79 +1,18 @@
+import { activeConnections, el, fmtCost, fmtTokens, initModels, onChange, openModels, renderUsage, requestBody, teamSummary } from "/models.js";
+
 const $ = (sel) => document.querySelector(sel);
-const KEYS_STORAGE = "openforge.keys";
 
-// ---------- AI model settings (kept in this browser only) ----------
-
-function loadKeys() {
-  try {
-    return JSON.parse(localStorage.getItem(KEYS_STORAGE)) ?? {};
-  } catch {
-    return {};
-  }
-}
-
-function saveKeys(keys) {
-  try {
-    localStorage.setItem(KEYS_STORAGE, JSON.stringify(keys));
-  } catch {
-    // Private mode: keys live only for this page view.
-  }
-}
-
-let keys = loadKeys();
-let serverKeys = {};
-
-function fillSettings() {
-  $("#key-anthropic").value = keys.anthropic?.apiKey ?? "";
-  $("#model-anthropic").value = keys.anthropic?.model ?? "";
-  $("#key-openai").value = keys.openai?.apiKey ?? "";
-  $("#model-openai").value = keys.openai?.model ?? "";
-  $("#key-gemini").value = keys.gemini?.apiKey ?? "";
-  $("#model-gemini").value = keys.gemini?.model ?? "";
-  $("#local-url").value = keys.local?.baseURL ?? "";
-  $("#local-model").value = keys.local?.model ?? "";
-  $("#key-local").value = keys.local?.apiKey ?? "";
-  $("#use-mock").checked = Boolean(keys.mock);
-}
-
-function readSettings() {
-  const v = (id) => $(id).value.trim();
-  keys = {
-    anthropic: v("#key-anthropic") ? { apiKey: v("#key-anthropic"), model: v("#model-anthropic") } : undefined,
-    openai: v("#key-openai") ? { apiKey: v("#key-openai"), model: v("#model-openai") } : undefined,
-    gemini: v("#key-gemini") ? { apiKey: v("#key-gemini"), model: v("#model-gemini") } : undefined,
-    local: v("#local-url") && v("#local-model") ? { baseURL: v("#local-url"), model: v("#local-model"), apiKey: v("#key-local") } : undefined,
-    mock: $("#use-mock").checked,
-  };
-  saveKeys(keys);
-}
-
-function teamNames() {
-  const names = [];
-  if (keys.anthropic || serverKeys.anthropic) names.push("Claude");
-  if (keys.openai || serverKeys.openai) names.push("GPT");
-  if (keys.gemini || serverKeys.gemini) names.push("Gemini");
-  if (keys.local || serverKeys.local) names.push("Local model");
-  if (keys.mock || serverKeys.mock) names.push("Demo model");
-  return names;
-}
+// ---------- AI models ----------
 
 function renderTeam() {
-  const names = teamNames();
-  $("#models-dot").classList.toggle("on", names.length > 0);
-  $("#team-line").textContent = names.length ? `Team: ${names.join(" + ")}` : "Add an AI model to start";
-  $("#create-btn").disabled = names.length === 0;
+  const team = teamSummary();
+  $("#models-dot").classList.toggle("on", activeConnections().length > 0);
+  $("#team-line").textContent = team ? `Team: ${team}` : "Add an AI model to start";
+  $("#create-btn").disabled = !team;
 }
 
-$("#settings-btn").addEventListener("click", () => {
-  fillSettings();
-  $("#settings").showModal();
-});
-$("#settings").addEventListener("close", () => {
-  if ($("#settings").returnValue === "save") {
-    readSettings();
-    renderTeam();
-  }
-});
+$("#settings-btn").addEventListener("click", () => openModels());
+onChange(renderTeam);
 
 // ---------- Projects ----------
 
@@ -93,7 +32,7 @@ $("#create-form").addEventListener("submit", async (e) => {
   if (!prompt) return;
   $("#create-btn").disabled = true;
   try {
-    const project = await api("/api/projects", { method: "POST", body: JSON.stringify({ prompt, keys }) });
+    const project = await api("/api/projects", { method: "POST", body: JSON.stringify({ prompt, ...requestBody() }) });
     location.hash = project.id;
   } catch (err) {
     alert(err.message);
@@ -132,11 +71,7 @@ let current = null;
 let source = null;
 let activeItem = null;
 
-function el(tag, props = {}, ...children) {
-  const node = Object.assign(document.createElement(tag), props);
-  node.append(...children.filter((c) => c !== undefined && c !== null));
-  return node;
-}
+
 
 function addItem(text, state = "active", detail) {
   if (activeItem && activeItem.classList.contains("active")) {
@@ -185,6 +120,29 @@ function renderHeader() {
   $("#site-request").textContent = current.request;
   const r = current.roles;
   $("#site-team").textContent = r ? `Planner: ${r.planner} · Builder: ${r.builder} · Reviewers: ${r.reviewers.join(", ")}` : "";
+  renderSiteUsage();
+}
+
+// Usage shown for this site: what was saved before the current job, plus calls streamed live.
+let liveUsage = null;
+
+function renderSiteUsage() {
+  const base = current?.usage ?? { inputTokens: 0, outputTokens: 0, cost: 0, unpricedCalls: 0, calls: 0 };
+  const u = liveUsage
+    ? {
+        inputTokens: base.inputTokens + liveUsage.inputTokens,
+        outputTokens: base.outputTokens + liveUsage.outputTokens,
+        cost: base.cost + liveUsage.cost,
+        unpricedCalls: base.unpricedCalls + liveUsage.unpricedCalls,
+        calls: base.calls + liveUsage.calls,
+      }
+    : base;
+  const line = $("#site-usage");
+  line.hidden = u.calls === 0;
+  line.replaceChildren(
+    `This site so far: ${fmtTokens(u.inputTokens + u.outputTokens)} tokens (${fmtTokens(u.inputTokens)} in, ${fmtTokens(u.outputTokens)} out) · ${fmtCost(u.cost, u.unpricedCalls)} · `,
+    el("a", { href: "#", onclick: (e) => (e.preventDefault(), openModels("usage-panel")) }, "Usage details"),
+  );
 }
 
 let progressItem = null;
@@ -227,11 +185,27 @@ function handleEvent(event) {
         el("div", {}, event.review.summary, event.review.issues.length ? el("ul", {}, ...event.review.issues.slice(0, 5).map((i) => el("li", {}, `${i.severity}: ${i.problem}`))) : null),
       );
       break;
+    case "usage": {
+      const c = event.call;
+      if (liveUsage) {
+        liveUsage.calls++;
+        liveUsage.inputTokens += c.inputTokens;
+        liveUsage.outputTokens += c.outputTokens;
+        if (c.cost === undefined) liveUsage.unpricedCalls++;
+        else liveUsage.cost += c.cost;
+        renderSiteUsage();
+      }
+      progressItem?.append(
+        el("div", { className: "tokens" }, `${c.connectionName} · ${c.model}: ${fmtTokens(c.inputTokens)} in, ${fmtTokens(c.outputTokens)} out${c.estimated ? " (estimated)" : ""} · ${fmtCost(c.cost)}`),
+      );
+      break;
+    }
     case "warning":
       addItem(event.message, "warn");
       break;
     case "status":
       if (event.status === "working") {
+        liveUsage = { inputTokens: 0, outputTokens: 0, cost: 0, unpricedCalls: 0, calls: 0 };
         setBusy(true);
       } else if (event.status === "ready") {
         setBusy(false);
@@ -239,6 +213,11 @@ function handleEvent(event) {
         addItem("Your site is ready", "ok");
         showResult();
       } else if (event.status === "failed") {
+        api(`/api/projects/${current.id}`).then((p) => {
+          current = p;
+          liveUsage = null;
+          renderSiteUsage();
+        });
         setBusy(false);
         if (activeItem?.classList.contains("active")) activeItem.classList.replace("active", "bad");
         addItem("Something went wrong", "bad", event.error);
@@ -250,6 +229,7 @@ function handleEvent(event) {
 
 async function showResult() {
   current = await api(`/api/projects/${current.id}`);
+  liveUsage = null;
   renderHeader();
   renderFiles();
   $("#download-btn").href = `/api/projects/${current.id}/download`;
@@ -289,7 +269,7 @@ $("#edit-form").addEventListener("submit", async (e) => {
   addItem(`You asked: ${instruction}`, "ok");
   setBusy(true);
   try {
-    await api(`/api/projects/${current.id}/edit`, { method: "POST", body: JSON.stringify({ instruction, keys }) });
+    await api(`/api/projects/${current.id}/edit`, { method: "POST", body: JSON.stringify({ instruction, ...requestBody() }) });
     $("#edit").value = "";
   } catch (err) {
     setBusy(false);
@@ -326,12 +306,5 @@ function route() {
 }
 window.addEventListener("hashchange", route);
 
-api("/api/config")
-  .then((config) => {
-    serverKeys = config.serverKeys ?? {};
-    const names = Object.entries(serverKeys).filter(([, on]) => on).map(([k]) => k);
-    $("#server-keys").textContent = names.length ? `This server also has keys for: ${names.join(", ")}.` : "";
-  })
-  .catch(() => {})
-  .finally(renderTeam);
+initModels().finally(renderTeam);
 route();

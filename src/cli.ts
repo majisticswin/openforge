@@ -1,7 +1,8 @@
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { assignRoles, forgeSite } from "./engine/forge.js";
-import { configFromEnv, createProviders } from "./providers/index.js";
+import { connectionsFromEnv, createProvider } from "./providers/index.js";
+import { MOCK_CONNECTION } from "./providers/mock.js";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -16,14 +17,14 @@ const request = positionals.join(" ").trim();
 if (!request) {
   console.log(`Usage: npm run forge -- "A website for my bakery with an online cake order form" [--out my-site] [--rounds 2] [--demo]
 
-Set at least one of ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, or LOCAL_BASE_URL + LOCAL_MODEL.
+Set at least one of ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, or LOCAL_BASE_URL (any OpenAI-compatible server).
 Use --demo to try the pipeline without any key.`);
   process.exit(1);
 }
 
-const config = configFromEnv();
-if (values.demo) config.mock = true;
-const roles = assignRoles(createProviders(config));
+const connections = connectionsFromEnv();
+if (values.demo && !connections.some((c) => c.kind === "mock")) connections.push(MOCK_CONNECTION);
+const roles = assignRoles(connections.map(createProvider));
 const dir = path.resolve(values.out!);
 
 console.log(`Planner: ${roles.planner.label}\nBuilder: ${roles.builder.label}\nReviewers: ${roles.reviewers.map((r) => r.label).join(", ")}\n`);
@@ -56,6 +57,12 @@ const result = await forgeSite(request, {
         const passed = event.result.checks.filter((c) => c.ok).length;
         console.log(`  automated tests: ${passed}/${event.result.checks.length} passed`);
         for (const p of event.result.problems) console.log(`    ${p.split("\n")[0]}`);
+        break;
+      }
+      case "usage": {
+        const c = event.call;
+        const cost = c.cost === undefined ? "" : `, $${c.cost.toFixed(4)}`;
+        console.log(`  ${c.role} used ${c.inputTokens.toLocaleString()} in / ${c.outputTokens.toLocaleString()} out tokens on ${c.model}${c.estimated ? " (estimated)" : ""}${cost}`);
         break;
       }
       case "warning":

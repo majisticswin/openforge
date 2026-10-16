@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { applyChanges, formatFileBlocks, parseFileBlocks, safeRelativePath } from "../src/engine/files.js";
 import { assignRoles, editSite, extractJson, forgeSite, type ForgeEvent } from "../src/engine/forge.js";
 import { createMockProvider } from "../src/providers/mock.js";
-import type { Provider } from "../src/providers/types.js";
+import type { Connection, Provider } from "../src/providers/types.js";
 import { createZip } from "../src/zip.js";
 
 test("parses file blocks, strips stray fences, and ignores unsafe paths", () => {
@@ -51,15 +51,27 @@ test("extracts JSON wrapped in prose or fences", () => {
   assert.throws(() => extractJson("no json here"));
 });
 
-test("assigns Claude to build and other models to plan and review", () => {
-  const fake = (id: Provider["id"]): Provider => ({ id, label: id, model: id, generate: async () => "" });
-  const roles = assignRoles([fake("gemini"), fake("openai"), fake("anthropic")]);
-  assert.equal(roles.builder.id, "anthropic");
-  assert.equal(roles.planner.id, "openai");
-  assert.deepEqual(roles.reviewers.map((r) => r.id), ["openai", "gemini"]);
+test("assigns Claude to build and other models to plan and review, unless the user picks", () => {
+  const fake = (kind: Connection["kind"], id: string = kind, local = false): Provider => ({
+    connection: { id, kind, name: id, local },
+    kind,
+    label: id,
+    model: id,
+    generate: async () => ({ text: "", model: id, usage: { inputTokens: 0, outputTokens: 0 } }),
+  });
+  const roles = assignRoles([fake("compatible", "ollama", true), fake("gemini"), fake("openai"), fake("anthropic"), fake("compatible", "openrouter")]);
+  assert.equal(roles.builder.connection.id, "anthropic");
+  assert.equal(roles.planner.connection.id, "openai");
+  assert.deepEqual(roles.reviewers.map((r) => r.connection.id), ["openai", "gemini", "openrouter"]);
+
+  const picked = assignRoles([fake("anthropic"), fake("gemini")], { builder: "gemini", planner: "gemini" });
+  assert.equal(picked.builder.connection.id, "gemini");
+  assert.equal(picked.planner.connection.id, "gemini");
+  assert.deepEqual(picked.reviewers.map((r) => r.connection.id), ["anthropic"]);
+
   const solo = assignRoles([fake("gemini")]);
-  assert.equal(solo.builder.id, "gemini");
-  assert.deepEqual(solo.reviewers.map((r) => r.id), ["gemini"]);
+  assert.equal(solo.builder.connection.id, "gemini");
+  assert.deepEqual(solo.reviewers.map((r) => r.connection.id), ["gemini"]);
   assert.throws(() => assignRoles([]));
 });
 
@@ -78,6 +90,10 @@ test("full pipeline with the demo model: builds, catches a broken link, fixes it
     const events: ForgeEvent[] = [];
     const roles = assignRoles([createMockProvider()]);
     const result = await forgeSite("A website for my bakery", { roles, dir, onEvent: (e) => events.push(e) });
+
+    const usage = events.filter((e) => e.type === "usage");
+    assert.ok(usage.length >= 4, "every AI call reports usage");
+    assert.ok(usage.every((e) => e.type === "usage" && e.call.outputTokens > 0 && e.call.cost === 0));
 
     const verifies = events.filter((e): e is Extract<ForgeEvent, { type: "verify" }> => e.type === "verify");
     assert.equal(verifies[0].result.ok, false, "the first build has a broken link");

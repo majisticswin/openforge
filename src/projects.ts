@@ -6,6 +6,7 @@ import { editSite, forgeSite, type ForgeEvent, type ForgeResult, type Roles } fr
 import { readProject } from "./engine/files.js";
 import { startApp, installDependencies, type RunningApp } from "./engine/runner.js";
 import type { SitePlan } from "./engine/verify.js";
+import type { UsageStore } from "./usage.js";
 
 export type ProjectStatus = "working" | "ready" | "failed";
 
@@ -18,6 +19,8 @@ export interface ProjectMeta {
   plan?: SitePlan;
   history: { at: string; kind: "create" | "edit"; text: string; checksPassed?: number; checksTotal?: number }[];
   roles?: { planner: string; builder: string; reviewers: string[] };
+  /** Tokens and cost spent on this site so far, across the build and every edit. */
+  usage?: { inputTokens: number; outputTokens: number; cost: number; unpricedCalls: number; calls: number };
 }
 
 type Listener = (event: ProjectEvent) => void;
@@ -29,7 +32,10 @@ export class ProjectStore {
   private listeners = new Map<string, Set<Listener>>();
   private previews = new Map<string, RunningApp>();
 
-  constructor(private root: string) {}
+  constructor(
+    private root: string,
+    private usage?: UsageStore,
+  ) {}
 
   dir(id: string) {
     return path.join(this.root, id);
@@ -98,10 +104,7 @@ export class ProjectStore {
         roles,
         dir: this.siteDir(meta.id),
         maxRounds,
-        onEvent: (e) => {
-          if (e.type === "plan") meta.plan = e.plan;
-          this.emit(meta.id, e);
-        },
+        onEvent: this.jobEvents(meta),
       }),
     );
     return meta;
@@ -119,8 +122,25 @@ export class ProjectStore {
     const files = await readProject(this.siteDir(id));
     const plan = meta.plan;
     this.events.set(id, []);
-    this.run(meta, () => editSite(instruction, plan, files, { roles, dir: this.siteDir(id), onEvent: (e) => this.emit(id, e) }));
+    this.run(meta, () => editSite(instruction, plan, files, { roles, dir: this.siteDir(id), onEvent: this.jobEvents(meta) }));
     return meta;
+  }
+
+  /** Forwards engine events to listeners, and records token usage against the site. */
+  private jobEvents(meta: ProjectMeta): (e: ForgeEvent) => void {
+    return (e) => {
+      if (e.type === "plan") meta.plan = e.plan;
+      if (e.type === "usage") {
+        const u = (meta.usage ??= { inputTokens: 0, outputTokens: 0, cost: 0, unpricedCalls: 0, calls: 0 });
+        u.calls++;
+        u.inputTokens += e.call.inputTokens;
+        u.outputTokens += e.call.outputTokens;
+        if (e.call.cost === undefined) u.unpricedCalls++;
+        else u.cost += e.call.cost;
+        void this.usage?.record({ ...e.call, projectId: meta.id, projectName: meta.plan?.name ?? meta.request.slice(0, 60) });
+      }
+      this.emit(meta.id, e);
+    };
   }
 
   private run(meta: ProjectMeta, job: () => Promise<ForgeResult>) {

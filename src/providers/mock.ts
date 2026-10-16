@@ -1,14 +1,17 @@
-import type { GenerateRequest, Provider } from "./types.js";
+import { estimateTokens, type Connection, type GenerateRequest, type Provider } from "./types.js";
+
+export const MOCK_CONNECTION: Connection = { id: "demo", kind: "mock", name: "Demo model", model: "mock" };
 
 /**
  * A fake provider that returns a small, real website. It lets you try the whole
  * pipeline (and run the tests) without any API key. Its first build has a
  * deliberately broken link so the test-and-fix loop has something to repair.
  */
-export function createMockProvider(): Provider {
+export function createMockProvider(connection: Connection = MOCK_CONNECTION): Provider {
   return {
-    id: "mock",
-    label: "Demo model",
+    connection,
+    kind: "mock",
+    label: connection.name,
     model: "mock",
     async generate({ system, prompt, onText }: GenerateRequest) {
       let text: string;
@@ -18,7 +21,7 @@ export function createMockProvider(): Provider {
       else if (system.includes("wants a change")) text = editFor(prompt);
       else text = BUILD;
       onText?.(text);
-      return text;
+      return { text, model: "mock", usage: { inputTokens: estimateTokens(system + prompt), outputTokens: estimateTokens(text), estimated: true } };
     },
   };
 }

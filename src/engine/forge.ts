@@ -1,4 +1,6 @@
+import { costOf, priceFor } from "../providers/pricing.js";
 import type { Provider } from "../providers/types.js";
+import type { UsageRecord } from "../usage.js";
 import { applyChanges, formatFileBlocks, parseFileBlocks, writeProject, type FileMap } from "./files.js";
 import {
   BUILDER_SYSTEM,
@@ -42,6 +44,7 @@ export type ForgeEvent =
   | { type: "files"; files: string[]; round: number }
   | { type: "verify"; result: VerifyResult; round: number }
   | { type: "review"; review: Review; round: number }
+  | { type: "usage"; call: UsageRecord }
   | { type: "warning"; message: string };
 
 export interface ForgeOptions {
@@ -62,18 +65,33 @@ export interface ForgeResult {
   rounds: number;
 }
 
-/** Prefer Claude to build (strongest coder), and give planning and review to the other models for a second opinion. */
-export function assignRoles(providers: Provider[]): Roles {
-  if (providers.length === 0) throw new Error("Add at least one AI provider (Claude, GPT, Gemini, or a local model).");
-  const order = ["anthropic", "openai", "gemini", "local", "mock"];
-  const sorted = [...providers].sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
-  const builder = sorted[0];
-  const others = sorted.slice(1);
+export interface RolePreferences {
+  /** Connection id of the model that should write the code. */
+  builder?: string;
+  /** Connection id of the model that should plan the site. */
+  planner?: string;
+}
+
+/**
+ * By default Claude builds (strongest coder) and the other models plan and
+ * review, for a second opinion. The user can pick the builder and planner.
+ */
+export function assignRoles(providers: Provider[], prefs: RolePreferences = {}): Roles {
+  if (providers.length === 0) throw new Error("Add at least one AI model first (Claude, GPT, Gemini, a cloud LLM, or a local model).");
+  const rank = (p: Provider) => {
+    const order = ["anthropic", "openai", "gemini", "compatible", "mock"];
+    return order.indexOf(p.kind) * 2 + (p.connection.local ? 1 : 0);
+  };
+  const sorted = [...providers].sort((a, b) => rank(a) - rank(b));
+  const builder = sorted.find((p) => p.connection.id === prefs.builder) ?? sorted[0];
+  const others = sorted.filter((p) => p !== builder);
+  const planner = sorted.find((p) => p.connection.id === prefs.planner) ?? others[0] ?? builder;
   return {
     builder,
     fixer: builder,
-    planner: others[0] ?? builder,
-    reviewers: others.length > 0 ? others : [builder],
+    planner,
+    // More than three reviewers adds cost without much new signal.
+    reviewers: others.length > 0 ? others.slice(0, 3) : [builder],
   };
 }
 
@@ -89,7 +107,8 @@ export function extractJson<T>(text: string): T {
 async function ask(provider: Provider, role: string, system: string, prompt: string, opts: ForgeOptions): Promise<string> {
   let chars = 0;
   let lastReport = 0;
-  return provider.generate({
+  const started = Date.now();
+  const result = await provider.generate({
     system,
     prompt,
     signal: opts.signal,
@@ -101,6 +120,26 @@ async function ask(provider: Provider, role: string, system: string, prompt: str
       }
     },
   });
+  const { connection } = provider;
+  opts.onEvent?.({
+    type: "usage",
+    call: {
+      at: new Date().toISOString(),
+      role: role.split(":")[0],
+      connectionId: connection.id,
+      connectionName: connection.name,
+      kind: connection.kind,
+      preset: connection.preset,
+      local: Boolean(connection.local),
+      model: result.model,
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+      estimated: Boolean(result.usage.estimated),
+      cost: costOf(result.usage, priceFor(connection, result.model)),
+      durationMs: Date.now() - started,
+    },
+  });
+  return result.text;
 }
 
 async function makePlan(request: string, opts: ForgeOptions): Promise<SitePlan> {
@@ -123,7 +162,7 @@ async function review(request: string, planJson: string, files: FileMap, round: 
   const fileText = formatFileBlocks(files);
   const results = await Promise.allSettled(
     opts.roles.reviewers.map(async (reviewer): Promise<Review> => {
-      const text = await ask(reviewer, `reviewer:${reviewer.id}`, REVIEWER_SYSTEM, reviewerPrompt(request, planJson, fileText), opts);
+      const text = await ask(reviewer, `reviewer:${reviewer.connection.id}`, REVIEWER_SYSTEM, reviewerPrompt(request, planJson, fileText), opts);
       const parsed = extractJson<Omit<Review, "reviewer">>(text);
       return {
         reviewer: reviewer.label,
