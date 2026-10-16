@@ -68,11 +68,46 @@ export function activeConnections() {
   return state.connections.filter((c) => c.enabled !== false);
 }
 
+const PROBLEM_LABEL = { credit: "Out of credit", key: "Key rejected", model: "Model unavailable", rate: "Rate limited", down: "Not responding" };
+// Credit and key problems last until someone tops up or fixes the key; the rest pass quickly.
+const PROBLEM_MINUTES = { credit: 30, key: 30, model: 30, rate: 2, down: 2 };
+
+function recentProblem(c) {
+  const p = c.problem;
+  return p && Date.now() - p.at < (PROBLEM_MINUTES[p.problem] ?? 2) * 60_000 ? p : null;
+}
+
+/** Remembers that a model failed during a build, so the card can say so and the next build starts elsewhere. */
+export function markProblem(connectionId, problem, message, when) {
+  const c = state.connections.find((x) => x.id === connectionId);
+  const at = when ? Date.parse(when) : Date.now();
+  // Replayed events can arrive after newer news about this model; keep the newest.
+  if (!c || (c.problem && c.problem.at >= at) || (c.okAt ?? 0) > at) return;
+  c.problem = { problem, message, at };
+  save();
+  if ($("#settings").open) renderConnections();
+}
+
+/** A successful call clears any earlier problem. */
+export function markWorking(connectionId, when) {
+  const c = state.connections.find((x) => x.id === connectionId);
+  const at = when ? Date.parse(when) : Date.now();
+  if (!c || (c.okAt ?? 0) >= at) return;
+  c.okAt = at;
+  if (c.problem && c.problem.at < at) delete c.problem;
+  save();
+  if ($("#settings").open) renderConnections();
+}
+
+export function connectionName(id) {
+  return state.connections.find((c) => c.id === id)?.name;
+}
+
 /** What the server needs to run a job: connections without cached model lists, plus role choices. */
 export function requestBody() {
   return {
-    connections: activeConnections().map(({ models: _models, ...rest }) => rest),
-    roles: state.roles,
+    connections: activeConnections().map(({ models: _models, problem: _problem, okAt: _okAt, ...rest }) => rest),
+    roles: { ...state.roles, avoid: activeConnections().filter(recentProblem).map((c) => c.id) },
   };
 }
 
@@ -84,10 +119,14 @@ function shortModel(c) {
 export function teamSummary() {
   const active = activeConnections();
   if (active.length === 0) return "";
-  const builder = active.find((c) => c.id === state.roles.builder) ?? rankSorted(active)[0];
-  const others = active.filter((c) => c !== builder);
+  const healthy = rankSorted(active).sort((a, b) => Number(Boolean(recentProblem(a))) - Number(Boolean(recentProblem(b))));
+  const picked = active.find((c) => c.id === state.roles.builder);
+  const builder = picked && !recentProblem(picked) ? picked : healthy[0];
+  const others = active.filter((c) => c !== builder && !recentProblem(c));
+  const skipped = active.filter((c) => c !== builder && recentProblem(c));
   const name = (c) => `${c.name} (${shortModel(c)})`;
-  return others.length ? `${name(builder)} builds · ${others.map(name).join(", ")} plan and review` : `${name(builder)} does everything`;
+  const team = others.length ? `${name(builder)} builds · ${others.map(name).join(", ")} plan and review` : `${name(builder)} does everything`;
+  return skipped.length ? `${team} · skipping ${skipped.map((c) => `${c.name} (${PROBLEM_LABEL[c.problem.problem].toLowerCase()})`).join(", ")}` : team;
 }
 
 function rankSorted(list) {
@@ -328,8 +367,10 @@ export function renderConnections() {
       refresh.disabled = true;
       refresh.textContent = "Loading…";
       try {
-        const { models: fresh } = await api("/api/models", { connection: { ...c, models: undefined } });
+        const { models: fresh } = await api("/api/models", { connection: { ...c, models: undefined, problem: undefined } });
         c.models = fresh;
+        delete c.problem;
+        accountCache.clear();
         save();
         renderConnections();
       } catch (err) {
@@ -378,6 +419,15 @@ export function renderConnections() {
       el("div", { className: "conn-top" }, el("span", { className: "conn-name" }, c.name), badgeFor(c), c.baseURL ? el("span", { className: "muted small" }, c.baseURL) : null),
       el("div", { className: "conn-model" }, select, c.kind === "mock" ? null : refresh),
       meta,
+      recentProblem(c)
+        ? el(
+            "p",
+            { className: "conn-problem small", role: "status" },
+            el("strong", {}, `${PROBLEM_LABEL[c.problem.problem]}. `),
+            `During the last build this model failed, so OpenForge switched to another one. It will be tried again after ${PROBLEM_MINUTES[c.problem.problem]} minutes, or after you top up and press Refresh. `,
+            el("span", { className: "muted" }, c.problem.message),
+          )
+        : null,
     );
     list.append(item);
     renderAccount(c, meta.querySelector(".account"));
@@ -407,11 +457,29 @@ function priceEditor(c) {
   return el("span", { className: "conn-price", title: "Optional: the provider's price, so OpenForge can show what you spend" }, "$ per 1M tokens", input, output);
 }
 
+/** Account balances for models whose provider shares them with a normal key (OpenRouter, DeepSeek). */
+export async function balances() {
+  const out = [];
+  for (const c of activeConnections()) {
+    if (c.local || c.kind === "mock" || !["openrouter", "deepseek"].includes(c.preset)) continue;
+    const key = `${c.id}:${c.apiKey ?? ""}`;
+    if (!accountCache.has(key)) accountCache.set(key, api("/api/account", { connection: { ...c, models: undefined, problem: undefined } }));
+    try {
+      const info = await accountCache.get(key);
+      if (info.remaining !== undefined) out.push({ name: c.name, text: `${info.currency === "USD" || !info.currency ? "$" : info.currency + " "}${Number(info.remaining).toFixed(2)} left` });
+      else if (info.used !== undefined) out.push({ name: c.name, text: `$${Number(info.used).toFixed(2)} used` });
+    } catch {
+      accountCache.delete(key);
+    }
+  }
+  return out;
+}
+
 async function renderAccount(c, slot) {
   if (c.local || c.kind === "mock") return;
   const key = `${c.id}:${c.apiKey ?? ""}`;
   try {
-    if (!accountCache.has(key)) accountCache.set(key, api("/api/account", { connection: { ...c, models: undefined } }));
+    if (!accountCache.has(key)) accountCache.set(key, api("/api/account", { connection: { ...c, models: undefined, problem: undefined } }));
     const info = await accountCache.get(key);
     const parts = [];
     if (info.supported) {

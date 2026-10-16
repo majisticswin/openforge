@@ -15,7 +15,12 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 const workspaces = process.env.OPENFORGE_WORKSPACES ?? path.join(root, "workspaces");
 const usage = new UsageStore(workspaces);
-const store = new ProjectStore(workspaces, usage);
+// Models that failed recently (no credit, bad key), so new jobs start with one that works.
+const failing = new Map<string, { until: number }>();
+const store = new ProjectStore(workspaces, usage, (e) => {
+  if (e.type === "switch") failing.set(e.connectionId, { until: Date.now() + (e.problem === "rate" || e.problem === "down" ? 2 : 30) * 60_000 });
+  if (e.type === "usage") failing.delete(e.call.connectionId);
+});
 const envConnections = connectionsFromEnv();
 if (process.argv.includes("--demo") && !envConnections.some((c) => c.kind === "mock")) envConnections.push(MOCK_CONNECTION);
 
@@ -42,7 +47,9 @@ function rolesFor(body: { connections?: unknown[]; roles?: RolePreferences }) {
   const sent = Array.isArray(body.connections) ? body.connections.map(resolveConnection).filter((c): c is Connection => c !== null) : [];
   const connections = sent.length > 0 ? sent : envConnections;
   const providers = connections.filter((c) => c.enabled !== false).map(createProvider);
-  return assignRoles(providers, body.roles ?? {});
+  const sentAvoid = Array.isArray(body.roles?.avoid) ? body.roles.avoid.filter((id): id is string => typeof id === "string") : [];
+  const avoid = [...sentAvoid, ...[...failing].filter(([, f]) => f.until > Date.now()).map(([id]) => id)];
+  return assignRoles(providers, { builder: body.roles?.builder, planner: body.roles?.planner, avoid });
 }
 
 app.get("/api/config", (_req, res) => {
@@ -57,7 +64,10 @@ app.post("/api/models", async (req, res) => {
   const connection = resolveConnection(req.body?.connection);
   if (!connection) return res.status(400).json({ error: "Fill in the API key (and address, for custom servers) first." });
   try {
-    res.json({ models: await listModels(connection) });
+    const models = await listModels(connection);
+    // The key works again (topped up or fixed), so new jobs may use it right away.
+    failing.delete(connection.id);
+    res.json({ models });
   } catch (err) {
     res.status(400).json({ error: friendlyError(err) });
   }
@@ -119,6 +129,8 @@ app.get("/api/projects/:id/events", async (req, res) => {
   const send = (event: unknown) => res.write(`data: ${JSON.stringify(event)}\n\n`);
   for (const event of store.history(meta.id)) send(event);
   if (meta.status !== "working") send({ type: "status", status: meta.status, error: meta.error });
+  // Everything before this marker is a replay of what already happened.
+  send({ type: "live" });
   const unsubscribe = store.subscribe(meta.id, send);
   const ping = setInterval(() => res.write(": ping\n\n"), 15_000);
   req.on("close", () => {

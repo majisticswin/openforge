@@ -1,4 +1,5 @@
-import { activeConnections, el, fmtCost, fmtTokens, initModels, onChange, openModels, renderUsage, requestBody, teamSummary } from "/models.js";
+import { activeConnections, el, fmtCost, fmtTokens, initModels, markProblem, markWorking, onChange, openModels, requestBody, teamSummary } from "/models.js";
+import { dockBuildEnd, dockBuildStart, dockEvent, dockOpen, dockShowSite, initDock } from "/usage-dock.js";
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -111,6 +112,8 @@ async function openProject(id) {
   renderHeader();
   for (const h of current.history.slice(0, -1)) addItem(h.kind === "create" ? "Site created" : `Changed: ${h.text}`, "ok");
 
+  replaying = true;
+  sawBuild = false;
   source = new EventSource(`/api/projects/${id}/events`);
   source.onmessage = (msg) => handleEvent(JSON.parse(msg.data));
 }
@@ -146,9 +149,27 @@ function renderSiteUsage() {
 }
 
 let progressItem = null;
+// True while the server replays events that happened before this page connected.
+let replaying = false;
+let sawBuild = false;
 
 function handleEvent(event) {
   switch (event.type) {
+    case "live":
+      replaying = false;
+      if (!sawBuild) dockShowSite(current?.usage);
+      // A build that is still running (like one just started) pops the usage panel open.
+      else if (current?.status === "working") dockOpen();
+      break;
+    case "switch":
+      addItem(event.message, "warn", event.detail);
+      dockEvent(event);
+      markProblem(event.connectionId, event.problem, event.detail ?? event.message, event.at);
+      api(`/api/projects/${current.id}`).then((p) => {
+        current.roles = p.roles;
+        renderHeader();
+      });
+      break;
     case "stage":
       progressItem = addItem(event.message);
       break;
@@ -187,6 +208,8 @@ function handleEvent(event) {
       break;
     case "usage": {
       const c = event.call;
+      dockEvent(event);
+      markWorking(c.connectionId, c.at);
       if (liveUsage) {
         liveUsage.calls++;
         liveUsage.inputTokens += c.inputTokens;
@@ -205,14 +228,18 @@ function handleEvent(event) {
       break;
     case "status":
       if (event.status === "working") {
+        sawBuild = true;
+        dockBuildStart(replaying);
         liveUsage = { inputTokens: 0, outputTokens: 0, cost: 0, unpricedCalls: 0, calls: 0 };
         setBusy(true);
       } else if (event.status === "ready") {
+        dockBuildEnd();
         setBusy(false);
         if (activeItem?.classList.contains("active")) activeItem.classList.replace("active", "ok");
         addItem("Your site is ready", "ok");
         showResult();
       } else if (event.status === "failed") {
+        dockBuildEnd();
         api(`/api/projects/${current.id}`).then((p) => {
           current = p;
           liveUsage = null;
@@ -306,5 +333,8 @@ function route() {
 }
 window.addEventListener("hashchange", route);
 
-initModels().finally(renderTeam);
+initModels().finally(() => {
+  renderTeam();
+  initDock();
+});
 route();

@@ -108,3 +108,71 @@ test("full pipeline with the demo model: builds, catches a broken link, fixes it
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("when a model runs out of credit mid-build, the next model takes over and the build finishes", { timeout: 180_000 }, async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "openforge-test-"));
+  try {
+    // A real-looking model backed by the demo output, so the build can finish.
+    const working = (kind: Connection["kind"], id: string): Provider => {
+      const mock = createMockProvider();
+      return { ...mock, connection: { id, kind, name: id }, kind, label: id };
+    };
+    const broke: Provider = {
+      ...working("anthropic", "claude"),
+      generate: async () => {
+        throw Object.assign(
+          new Error('400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}'),
+          { status: 400 },
+        );
+      },
+    };
+    const events: ForgeEvent[] = [];
+    const roles = assignRoles([broke, working("openai", "gpt"), working("gemini", "gemini"), createMockProvider()]);
+    assert.equal(roles.builder.label, "claude");
+    const result = await forgeSite("A website for my bakery", { roles, dir, onEvent: (e) => events.push(e) });
+    assert.ok(result.verify.ok);
+
+    const switches = events.filter((e): e is Extract<ForgeEvent, { type: "switch" }> => e.type === "switch");
+    assert.equal(switches.length, 1, "the broken model is only tried once");
+    assert.equal(switches[0].problem, "credit");
+    assert.equal(switches[0].to, "gpt");
+    assert.equal(roles.builder.label, "gpt");
+    assert.ok(!roles.reviewers.includes(roles.builder), "the new builder doesn't review its own code");
+    assert.ok(events.some((e) => e.type === "usage" && e.call.role === "builder" && e.call.connectionId === "gpt"));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a build fails with a clear message only when every model has failed", async () => {
+  const dead = (id: string, status: number, message: string): Provider => ({
+    connection: { id, kind: "openai", name: id },
+    kind: "openai",
+    label: id,
+    model: id,
+    generate: async () => {
+      throw Object.assign(new Error(message), { status });
+    },
+  });
+  const roles = assignRoles([dead("a", 401, "Incorrect API key provided"), dead("b", 429, "You exceeded your current quota")]);
+  await assert.rejects(forgeSite("x", { roles, dir: os.tmpdir() }), (err: Error) => {
+    assert.match(err.message, /Every AI model failed/);
+    assert.match(err.message, /a rejected the API key/);
+    assert.match(err.message, /b ran out of credit/);
+    return true;
+  });
+});
+
+test("models that failed recently are only used as a last resort", () => {
+  const fake = (kind: Connection["kind"], id: string): Provider => ({
+    connection: { id, kind, name: id },
+    kind,
+    label: id,
+    model: id,
+    generate: async () => ({ text: "", model: id, usage: { inputTokens: 0, outputTokens: 0 } }),
+  });
+  const roles = assignRoles([fake("anthropic", "claude"), fake("gemini", "gemini"), fake("openai", "gpt")], { builder: "claude", avoid: ["claude"] });
+  assert.equal(roles.builder.label, "gpt");
+  assert.ok(!roles.reviewers.some((r) => r.label === "claude"));
+  assert.equal(roles.pool?.at(-1)?.label, "claude");
+});

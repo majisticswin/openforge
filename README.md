@@ -60,7 +60,9 @@ Open http://localhost:4321, click **AI models**, and pick from the **Add an AI**
 
 OpenForge scans this computer for local AI servers that are already running and lists them at the top of the dropdown. To scan other machines too (for example when OpenForge runs in Docker), set `OPENFORGE_SCAN_HOSTS=host.docker.internal,192.168.1.20`.
 
-The **Usage** tab shows the tokens and cost of every AI call, by day, model and site. Counts come from what each provider reports for each call. Claude prices are built in, OpenRouter publishes its own, and for other paid models you can enter the price. OpenRouter and DeepSeek also show your remaining account balance; the other providers only expose that in their own dashboards, so OpenForge links there.
+If a model runs out of credit, has its key rejected or stops responding mid-build, OpenForge hands its job to the next model you added and keeps going. The model card says what happened, and new builds skip that model until you top up and press Refresh.
+
+A floating usage panel in the corner pops up when you open OpenForge and when a build starts, and counts tokens and cost live. The **Usage** tab shows the tokens and cost of every AI call, by day, model and site. Counts come from what each provider reports for each call. Claude prices are built in, OpenRouter publishes its own, and for other paid models you can enter the price. OpenRouter and DeepSeek also show your remaining account balance; the other providers only expose that in their own dashboards, so OpenForge links there.
 
 No key yet? Run `npm run demo` to see the whole flow with a built-in demo model.
 

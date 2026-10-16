@@ -8,7 +8,7 @@ import { createMockProvider } from "../src/providers/mock.js";
  * the demo model's output, streamed the way real servers do, and reports usage.
  * Used by the tests, and handy for trying the "scan for local models" feature.
  */
-export function createFakeOpenAIServer(models = ["qwen3-coder:30b", "llama4:16x17b"]) {
+export function createFakeOpenAIServer(models = ["qwen3-coder:30b", "llama4:16x17b"], options: { outOfCredit?: boolean } = {}) {
   const app = express();
   app.use(express.json({ limit: "20mb" }));
   const mock = createMockProvider();
@@ -24,6 +24,10 @@ export function createFakeOpenAIServer(models = ["qwen3-coder:30b", "llama4:16x1
   app.post("/v1/chat/completions", async (req, res) => {
     const { model, messages, stream_options } = req.body;
     requests.push({ model, includeUsage: Boolean(stream_options?.include_usage) });
+    if (options.outOfCredit) {
+      // What a cloud provider sends when the account has no money left.
+      return res.status(402).json({ error: { message: "Insufficient credits. Add more using https://example.com/credits", code: 402 } });
+    }
     const system = messages.find((m: { role: string }) => m.role === "system")?.content ?? "";
     const prompt = messages.find((m: { role: string }) => m.role === "user")?.content ?? "";
     const { text } = await mock.generate({ system, prompt });
@@ -52,8 +56,9 @@ export function createFakeOpenAIServer(models = ["qwen3-coder:30b", "llama4:16x1
   };
 }
 
-// Run directly to pretend Ollama is running: npx tsx test/fake-openai-server.ts [port]
+// Run directly to pretend Ollama is running: npx tsx test/fake-openai-server.ts [port] [--out-of-credit]
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  const { port } = await createFakeOpenAIServer().listen(Number(process.argv[2]) || 11434);
+  const outOfCredit = process.argv.includes("--out-of-credit");
+  const { port } = await createFakeOpenAIServer(undefined, { outOfCredit }).listen(Number(process.argv[2]) || 11434);
   console.log(`Fake local AI server on http://localhost:${port}/v1`);
 }

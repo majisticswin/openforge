@@ -35,6 +35,8 @@ export class ProjectStore {
   constructor(
     private root: string,
     private usage?: UsageStore,
+    /** Sees every engine event, so the server can remember which models are failing. */
+    private watch?: (e: ForgeEvent) => void,
   ) {}
 
   dir(id: string) {
@@ -104,7 +106,7 @@ export class ProjectStore {
         roles,
         dir: this.siteDir(meta.id),
         maxRounds,
-        onEvent: this.jobEvents(meta),
+        onEvent: this.jobEvents(meta, roles),
       }),
     );
     return meta;
@@ -122,14 +124,19 @@ export class ProjectStore {
     const files = await readProject(this.siteDir(id));
     const plan = meta.plan;
     this.events.set(id, []);
-    this.run(meta, () => editSite(instruction, plan, files, { roles, dir: this.siteDir(id), onEvent: this.jobEvents(meta) }));
+    this.run(meta, () => editSite(instruction, plan, files, { roles, dir: this.siteDir(id), onEvent: this.jobEvents(meta, roles) }));
     return meta;
   }
 
   /** Forwards engine events to listeners, and records token usage against the site. */
-  private jobEvents(meta: ProjectMeta): (e: ForgeEvent) => void {
+  private jobEvents(meta: ProjectMeta, roles: Roles): (e: ForgeEvent) => void {
     return (e) => {
       if (e.type === "plan") meta.plan = e.plan;
+      if (e.type === "switch") {
+        meta.roles = { planner: roles.planner.label, builder: roles.builder.label, reviewers: roles.reviewers.map((r) => r.label) };
+        void this.save(meta);
+      }
+      this.watch?.(e);
       if (e.type === "usage") {
         const u = (meta.usage ??= { inputTokens: 0, outputTokens: 0, cost: 0, unpricedCalls: 0, calls: 0 });
         u.calls++;
