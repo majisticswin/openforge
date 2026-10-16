@@ -1,0 +1,39 @@
+{
+  "name": "openforge",
+  "version": "0.1.0",
+  "description": "Open source AI website builder that uses Claude, GPT and Gemini together to build full stack websites.",
+  "scripts": {
+    "start": "tsx --env-file-if-exists=.env src/server.ts",
+    "dev": "tsx watch --env-file-if-exists=.env src/server.ts",
+    "forge": "tsx --env-file-if-exists=.env src/cli.ts",
+    "typecheck": "tsc",
+    "test": "tsx --test test/*.test.ts",
+    "demo": "tsx src/server.ts --demo"
+  },
+  "keywords": [
+    "ai",
+    "website-builder",
+    "claude",
+    "openai",
+    "gemini",
+    "full-stack"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.135.0",
+    "@google/genai": "^2.30.0",
+    "express": "^5.3.0",
+    "openai": "^7.34.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  }
+}
