@@ -77,7 +77,12 @@ function render() {
   );
 
   const body = $("#dock-body");
-  body.replaceChildren();
+  const minimize = el("button", { type: "button", className: "dock-min", "aria-label": "Minimize usage panel", title: "Minimize" }, "–");
+  minimize.addEventListener("click", () => {
+    setOpen(false);
+    $("#dock-pill").focus();
+  });
+  body.replaceChildren(minimize);
   if (build) {
     body.append(
       el("h3", {}, running ? "This build, live" : "Last build"),

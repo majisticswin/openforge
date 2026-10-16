@@ -203,8 +203,11 @@ td.empty { color: var(--muted); text-align: center; padding: 16px; }
 @media (prefers-reduced-motion: reduce) { .usage-dock.running .dock-dot { animation: none; } }
 .dock-body { display: none; width: 330px; max-width: 100%; max-height: min(70vh, 560px); overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; box-shadow: 0 16px 50px #000a; }
 .usage-dock.open .dock-body { display: block; }
+.dock-body { position: relative; }
+.dock-min { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--line); background: var(--raised); color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1; }
+.dock-min:hover { color: var(--text); border-color: #ffffff33; }
 .dock-body h3 { margin: 12px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
-.dock-body h3:first-child { margin-top: 0; }
+.dock-min + h3 { margin-top: 0; padding-right: 36px; }
 .dock-big { font-size: 22px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .dock-row, .dock-models li { display: flex; gap: 10px; justify-content: space-between; font-size: 13px; padding: 3px 0; }
 .dock-label, .dock-model { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
