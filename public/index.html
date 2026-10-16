@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenForge</title>
+  <meta name="description" content="Open source AI website builder. Claude, GPT and Gemini build your full stack website together.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23ff6b35'/%3E%3Cpath d='M9 22h14M11 22l2-10h6l2 10M14 12V8h4v4' stroke='white' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="OpenForge home">
+      <span class="brand-mark" aria-hidden="true"></span>OpenForge
+    </a>
+    <nav class="topbar-actions">
+      <button class="ghost" id="projects-btn" type="button">My sites</button>
+      <button class="ghost" id="settings-btn" type="button">AI models <span class="dot" id="models-dot" aria-hidden="true"></span></button>
+      <a class="ghost" href="https://github.com/majisticswin/openforge" id="github-link" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </header>
+
+  <!-- Start screen -->
+  <main id="home" class="home">
+    <h1>Describe a website.<br><span>Get a real one.</span></h1>
+    <p class="lede">Claude, GPT and Gemini work as one team: one plans, one builds, the others review. Every page is run and tested before you see it. Free and open source.</p>
+    <form id="create-form" class="prompt-box">
+      <label for="prompt" class="sr-only">Describe your website</label>
+      <textarea id="prompt" rows="4" placeholder="A website for my dental clinic in Dhaka, with services, prices, a team page and online appointment booking that I can manage from an admin page." required></textarea>
+      <div class="prompt-footer">
+        <span class="team" id="team-line">Add an AI model to start</span>
+        <button class="primary" type="submit" id="create-btn">Build my site</button>
+      </div>
+    </form>
+    <div class="examples" aria-label="Examples">
+      <button type="button" data-example="A portfolio for a wedding photographer with galleries, packages and a booking enquiry form.">Photographer portfolio</button>
+      <button type="button" data-example="An online menu and table reservation site for a Bangladeshi restaurant, with an admin page to see bookings.">Restaurant with bookings</button>
+      <button type="button" data-example="A landing page for a SaaS that turns meeting notes into tasks, with pricing tiers and a waitlist signup.">SaaS landing page</button>
+      <button type="button" data-example="A small online shop for handmade candles with a product catalogue, cart and order requests.">Small shop</button>
+    </div>
+  </main>
+
+  <!-- Workspace -->
+  <main id="workspace" class="workspace" hidden>
+    <aside class="panel">
+      <div class="panel-head">
+        <h2 id="site-name">New site</h2>
+        <p id="site-request" class="muted"></p>
+        <p id="site-team" class="team small"></p>
+      </div>
+      <ol id="timeline" class="timeline" aria-live="polite"></ol>
+      <form id="edit-form" class="edit-box">
+        <label for="edit" class="sr-only">Ask for a change</label>
+        <textarea id="edit" rows="2" placeholder="Ask for a change, like &quot;make the hero darker and add a testimonials section&quot;"></textarea>
+        <button class="primary" type="submit" id="edit-btn">Change</button>
+      </form>
+    </aside>
+
+    <section class="stage">
+      <div class="stage-bar">
+        <div class="tabs" role="tablist">
+          <button role="tab" aria-selected="true" data-tab="preview" type="button">Preview</button>
+          <button role="tab" aria-selected="false" data-tab="code" type="button">Code</button>
+        </div>
+        <div class="stage-actions">
+          <a class="ghost" id="open-btn" target="_blank" rel="noopener" hidden>Open in new tab</a>
+          <a class="primary" id="download-btn" hidden>Download</a>
+        </div>
+      </div>
+      <div class="stage-body">
+        <div id="preview-pane" class="pane">
+          <div id="preview-empty" class="empty">
+            <div class="forge-anim" aria-hidden="true"><span></span><span></span><span></span></div>
+            <p id="preview-status">Your site will appear here once it passes its tests.</p>
+          </div>
+          <iframe id="preview" title="Website preview" hidden></iframe>
+        </div>
+        <div id="code-pane" class="pane code" hidden>
+          <ul id="file-list" class="file-list"></ul>
+          <pre><code id="file-view">Select a file</code></pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- AI models dialog -->
+  <dialog id="settings">
+    <form method="dialog" class="dialog">
+      <h2>AI models</h2>
+      <p class="muted">Add any you have. With more than one, they plan, build and review each other's work. Keys stay in this browser and are only sent to your own OpenForge server.</p>
+      <fieldset>
+        <legend>Claude (Anthropic)</legend>
+        <input id="key-anthropic" type="password" placeholder="sk-ant-..." autocomplete="off">
+        <input id="model-anthropic" placeholder="Model (default claude-opus-5-5)">
+      </fieldset>
+      <fieldset>
+        <legend>GPT (OpenAI)</legend>
+        <input id="key-openai" type="password" placeholder="sk-..." autocomplete="off">
+        <input id="model-openai" placeholder="Model (default: newest GPT)">
+      </fieldset>
+      <fieldset>
+        <legend>Gemini (Google)</legend>
+        <input id="key-gemini" type="password" placeholder="AIza..." autocomplete="off">
+        <input id="model-gemini" placeholder="Model (default: newest Gemini Pro)">
+      </fieldset>
+      <fieldset>
+        <legend>Free local model (Ollama, LM Studio) or OpenRouter</legend>
+        <input id="local-url" placeholder="http://localhost:11434/v1">
+        <input id="local-model" placeholder="Model, e.g. qwen3-coder">
+        <input id="key-local" type="password" placeholder="API key (if needed)" autocomplete="off">
+      </fieldset>
+      <label class="check"><input id="use-mock" type="checkbox"> Demo mode (no key, builds a sample site to show how it works)</label>
+      <p id="server-keys" class="muted small"></p>
+      <div class="dialog-actions">
+        <button class="primary" value="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Projects dialog -->
+  <dialog id="projects">
+    <form method="dialog" class="dialog">
+      <h2>My sites</h2>
+      <ul id="project-list" class="project-list"></ul>
+      <div class="dialog-actions"><button class="ghost" value="close">Close</button></div>
+    </form>
+  </dialog>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
